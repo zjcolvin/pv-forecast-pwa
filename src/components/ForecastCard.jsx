@@ -38,7 +38,7 @@ export default function ForecastCard({ day, isToday, pvKwh, solcastKwh }) {
       }}>
         ☀ {sunrise}-{sunset}
         <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 1 }}>
-          {day.daylightHours}h 日照
+          {day.daylightHours}h
         </div>
       </div>
 
