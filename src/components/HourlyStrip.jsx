@@ -13,7 +13,7 @@ function BarIndicator({ value, max, color }) {
   )
 }
 
-export default function HourlyStrip({ day, params, onSelect }) {
+export default function HourlyStrip({ day, params, solcastData }) {
   const [sel, setSel] = useState(null)
   const hours = day.dayHours || day.hours
 
@@ -23,11 +23,23 @@ export default function HourlyStrip({ day, params, onSelect }) {
 
   const handleClick = (h) => {
     setSel(h.i)
-    onSelect && onSelect(h.i)
   }
 
   const peakGhi = Math.max(...hours.map(h => h.ghi), 1)
   const maxKw = params?.capacityKw || 10
+
+  // Build Solcast lookup by hour
+  const solMap = new Map()
+  if (solcastData?.forecasts) {
+    for (const f of solcastData.forecasts) {
+      const d = new Date(f.period_end)
+      const hour = d.getUTCHours() + 8 // CST
+      const dayStr = f.period_end.slice(0, 10)
+      const key = `${dayStr}T${String(hour).padStart(2,'0')}`
+      if (!solMap.has(key)) solMap.set(key, [])
+      solMap.get(key).push(f.pv_estimate || 0)
+    }
+  }
 
   return (
     <div style={{
@@ -106,18 +118,34 @@ export default function HourlyStrip({ day, params, onSelect }) {
         </div>
       </div>
 
-      {params && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
-          <div style={{ width: 90, flexShrink: 0, color: '#4ade80' }}>发电</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, marginBottom: 6 }}>
+        <div style={{ width: 90, flexShrink: 0, color: '#4ade80' }}>Meteoblue 发电</div>
+        <div style={{ display: 'flex', gap: 2, flex: 1 }}>
+          {hours.map((h, i) => {
+            const { capacityKw, areaM2, efficiency, pr, tempCoeff } = params
+            const dc = h.ghi * areaM2 * efficiency / 1000
+            const tf = 1 + tempCoeff * ((h.temp || 25) + 25 - 25)
+            const kw = Math.min(capacityKw, Math.max(0, dc * tf * pr))
+            return (
+              <div key={i} style={{ width: 28, height: 28 }}>
+                <BarIndicator value={kw} max={maxKw} color="#4ade80" />
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {solcastData && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, marginBottom: 6 }}>
+          <div style={{ width: 90, flexShrink: 0, color: '#a78bfa' }}>Solcast 发电</div>
           <div style={{ display: 'flex', gap: 2, flex: 1 }}>
             {hours.map((h, i) => {
-              const { capacityKw, areaM2, efficiency, pr, tempCoeff } = params
-              const dc = h.ghi * areaM2 * efficiency / 1000
-              const tf = 1 + tempCoeff * ((h.temp || 25) + 25 - 25)
-              const kw = Math.min(capacityKw, Math.max(0, dc * tf * pr))
+              const key = `${day.date.slice(0,10)}T${String(h.hour).padStart(2,'0')}`
+              const arr = solMap.get(key)
+              const kw = arr && arr.length ? arr.reduce((a,b)=>a+b,0) / arr.length : 0
               return (
                 <div key={i} style={{ width: 28, height: 28 }}>
-                  <BarIndicator value={kw} max={maxKw} color="#4ade80" />
+                  <BarIndicator value={kw} max={maxKw} color="#a78bfa" />
                 </div>
               )
             })}
@@ -128,6 +156,9 @@ export default function HourlyStrip({ day, params, onSelect }) {
       {sel !== null && (() => {
         const h = hours.find(x => x.i === sel)
         if (!h) return null
+        const key = `${day.date.slice(0,10)}T${String(h.hour).padStart(2,'0')}`
+        const solArr = solMap.get(key)
+        const solKw = solArr && solArr.length ? (solArr.reduce((a,b)=>a+b,0) / solArr.length).toFixed(2) : null
         return (
           <div style={{
             marginTop: 12, padding: '8px 12px', background: '#0f172a', borderRadius: 8,
@@ -141,6 +172,7 @@ export default function HourlyStrip({ day, params, onSelect }) {
             <div>GHI <strong>{Math.round(h.ghi)} W/m²</strong></div>
             <div style={{ color: '#60a5fa' }}>降水概率 <strong>{h.precipProb}%</strong></div>
             {h.rain > 0 && <div style={{ color: '#60a5fa' }}>降水量 {h.rain} mm</div>}
+            {solKw && <div style={{ color: '#a78bfa' }}>Solcast <strong>{solKw} kW</strong></div>}
           </div>
         )
       })()}

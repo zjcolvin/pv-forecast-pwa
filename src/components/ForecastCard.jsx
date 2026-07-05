@@ -1,6 +1,6 @@
 import { weatherIcon, weatherLabel } from './WeatherIcon.jsx'
 
-export default function ForecastCard({ day, isToday, pvKwh }) {
+export default function ForecastCard({ day, isToday, pvKwh, solcastKwh }) {
   const icon = weatherIcon(day.code)
   const sunrise = day.sunrise != null ? `${String(Math.floor(day.sunrise)).padStart(2,'0')}:${String(Math.round((day.sunrise%1)*60)).padStart(2,'0')}` : '--'
   const sunset = day.sunset != null ? `${String(Math.floor(day.sunset)).padStart(2,'0')}:${String(Math.round((day.sunset%1)*60)).padStart(2,'0')}` : '--'
@@ -58,6 +58,14 @@ export default function ForecastCard({ day, isToday, pvKwh }) {
           padding: '2px 4px', background: 'rgba(34,197,94,.1)', borderRadius: 4
         }}>
           ⚡ {pvKwh} kWh
+        </div>
+      )}
+      {solcastKwh > 0 && (
+        <div style={{
+          fontSize: 9, color: '#a78bfa', marginTop: 2,
+          padding: '2px 4px', background: 'rgba(167,139,250,.1)', borderRadius: 4
+        }}>
+          ◎ {solcastKwh} kWh
         </div>
       )}
     </div>

@@ -9,7 +9,7 @@ export const METEOBLUE_KEY = 'Ag8H7MjpqrZY2cEP'
 export const METEOBLUE_URL = 'https://my.meteoblue.com/packages/basic-1h,solar-1h'
 
 export const SOLCAST_SITE = '6202-eb4d-032d-dabc'
-export const SOLCAST_BASE = 'https://api.solcast.com.au/rooftop_sites'
+export const SOLCAST_API_KEY = 'NrJJjyGiGLoqyxb_B2uV48v135ehBl7z'
 
 export const DEFAULT_PARAMS = {
   capacityKw: 10,
@@ -20,4 +20,7 @@ export const DEFAULT_PARAMS = {
 }
 
 export const HOURS_TO_SHOW = 72
-export const CACHE_TTL_MS = 60 * 60 * 1000
+// Meteoblue:10 calls/day → 1 hour TTL balances freshness vs quota
+export const METEOBLUE_CACHE_TTL_MS = 60 * 60 * 1000
+// Solcast:30 calls/day → 12 hour TTL = 2 calls/day
+export const SOLCAST_CACHE_TTL_MS = 12 * 60 * 60 * 1000

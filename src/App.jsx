@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react'
-import { fetchWeather } from './lib/api.js'
+import { fetchWeather, fetchSolcast } from './lib/api.js'
 import { aggregateDaily } from './lib/aggregation.js'
+import { alignSolcast, summarize } from './lib/pvCalc.js'
 import { calcPower } from './lib/pvCalc.js'
 import { useStationParams } from './hooks/useStationParams.js'
 import { usePullToRefresh } from './hooks/usePullToRefresh.jsx'
 import ForecastCard from './components/ForecastCard.jsx'
 import HourlyStrip from './components/HourlyStrip.jsx'
 import ParamForm from './components/ParamForm.jsx'
-import { STATION } from './lib/constants.js'
+import { STATION, SOLCAST_SITE } from './lib/constants.js'
 
 function fmtHour(h) {
   if (h == null) return '--'
@@ -24,25 +25,65 @@ export default function App() {
   const [error, setError] = useState(null)
   const [updatedAt, setUpdatedAt] = useState(null)
   const [selectedDay, setSelectedDay] = useState(0)
+  const [solcastData, setSolcastData] = useState(null)
+  const [solcastStatus, setSolcastStatus] = useState('')
+  const [usage, setUsage] = useState({ meteoblue: 0, solcast: 0, resetAt: '' })
 
-  const load = useCallback(async () => {
+  const loadUsageStats = useCallback(() => {
+    const now = new Date()
+    // Find previous UTC midnight
+    const resetAt = new Date(now)
+    resetAt.setUTCHours(24, 0, 0, 0)
+    const lastReset = new Date(now)
+    lastReset.setUTCHours(0, 0, 0, 0)
+
+    // Count calls from localStorage markers
+    const mbRaw = localStorage.getItem('meteoblue_cache_v1')
+    const scRaw = localStorage.getItem('solcast_cache_v1')
+    let mb = 0, sc = 0
+    try {
+      const m = mbRaw ? JSON.parse(mbRaw) : null
+      if (m?.timestamp && m.timestamp > lastReset.getTime()) mb = 1
+    } catch {}
+    try {
+      const s = scRaw ? JSON.parse(scRaw) : null
+      if (s?.timestamp && s.timestamp > lastReset.getTime()) sc = 1
+    } catch {}
+    setUsage({
+      meteoblue: mb,
+      solcast: sc,
+      resetAt: resetAt.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
+    })
+  }, [])
+
+  const loadAll = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const d = await fetchWeather()
-      setRaw(d)
-      setUpdatedAt(d.metadata?.modelrun_updatetime_utc || null)
-      setDays(aggregateDaily(d))
+      const mb = await fetchWeather()
+      setRaw(mb)
+      setUpdatedAt(mb.metadata?.modelrun_updatetime_utc || null)
+      setDays(aggregateDaily(mb))
+
+      // Solcast auto-load(won't fail main app if fails)
+      try {
+        const sc = await fetchSolcast()
+        setSolcastData(sc)
+        setSolcastStatus(sc ? `✓ Solcast loaded(${sc.forecasts?.length || 0} values)` : 'No Solcast data')
+      } catch (e) {
+        setSolcastStatus('Solcast unavailable:' + e.message)
+      }
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
+      loadUsageStats()
     }
-  }, [])
+  }, [loadUsageStats])
 
-  const { pullIndicator } = usePullToRefresh(load)
+  const { pullIndicator } = usePullToRefresh(loadAll)
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { loadAll() }, [loadAll])
 
   const dailyPv = days.map(day => {
     let total = 0
@@ -50,7 +91,22 @@ export default function App() {
     return +total.toFixed(1)
   })
 
+  // Compute Solcast daily totals(if available)
+  const dailySolcast = solcastData?.forecasts?.length
+    ? days.map(day => {
+        let total = 0
+        const dayPrefix = day.date.slice(0, 10)
+        for (const f of solcastData.forecasts) {
+          if ((f.period_end || '').startsWith(dayPrefix)) {
+            total += (f.pv_estimate || 0) * 0.5 // per 30min → kWh
+          }
+        }
+        return +total.toFixed(1)
+      })
+    : []
+
   const totalWeekKwh = dailyPv.reduce((a, b) => a + b, 0)
+  const totalWeekSolcast = dailySolcast.reduce((a, b) => a + b, 0)
 
   return (
     <>
@@ -64,11 +120,11 @@ export default function App() {
               </h1>
               <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
                 {STATION.lat.toFixed(3)}°N, {STATION.lon.toFixed(3)}°E
-                {updatedAt && ` · 更新于 ${updatedAt} UTC`}
+                {updatedAt && ` · Meteoblue 更新于 ${updatedAt}`}
               </div>
             </div>
             <button
-              onClick={load}
+              onClick={loadAll}
               disabled={loading}
               style={{
                 padding: '8px 18px', background: '#3b82f6', border: 'none',
@@ -87,13 +143,34 @@ export default function App() {
           </div>
         )}
 
+        {/* Usage stats */}
+        <div style={{
+          background: '#1e293b', borderRadius: 10, padding: '8px 14px',
+          marginBottom: 16, display: 'flex', gap: 16, fontSize: 11, color: '#94a3b8'
+        }}>
+          <div>
+            <strong style={{ color: '#fbbf24' }}>{usage.meteoblue}</strong>/10 Meteoblue
+          </div>
+          <div>
+            <strong style={{ color: '#a78bfa' }}>{usage.solcast}</strong>/30 Solcast
+          </div>
+          <div style={{ marginLeft: 'auto' }}>
+            今日重置 {usage.resetAt}
+          </div>
+          {solcastStatus && (
+            <div style={{ color: solcastStatus.startsWith('✓') ? '#4ade80' : '#f87171' }}>
+              {solcastStatus}
+            </div>
+          )}
+        </div>
+
         <div style={{
           display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8,
           scrollbarWidth: 'thin', scrollbarColor: '#334155 transparent'
         }}>
           {days.map((day, i) => (
             <div key={day.date} onClick={() => setSelectedDay(i)} style={{ cursor: 'pointer' }}>
-              <ForecastCard day={day} isToday={i === 0} pvKwh={dailyPv[i]} />
+              <ForecastCard day={day} isToday={i === 0} pvKwh={dailyPv[i]} solcastKwh={dailySolcast[i]} />
             </div>
           ))}
         </div>
@@ -137,6 +214,20 @@ export default function App() {
                     {dailyPv[selectedDay]}
                     <span style={{ fontSize: 13, fontWeight: 400, color: '#94a3b8' }}> kWh</span>
                   </div>
+                  {dailySolcast[selectedDay] > 0 && (
+                    <>
+                      <div style={{ fontSize: 11, color: '#a78bfa', marginTop: 8 }}>Solcast 估算</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#a78bfa' }}>
+                        {dailySolcast[selectedDay]}
+                        <span style={{ fontSize: 13, fontWeight: 400, color: '#94a3b8' }}> kWh</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+                        {dailyPv[selectedDay] > 0 && dailySolcast[selectedDay] > 0
+                          ? `(${((dailySolcast[selectedDay] / dailyPv[selectedDay] - 1) * 100).toFixed(0)}% 偏差)`
+                          : ''}
+                      </div>
+                    </>
+                  )}
                   <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
                     峰值 GHI {days[selectedDay].peakGhi} W/m²
                   </div>
@@ -144,7 +235,7 @@ export default function App() {
               </div>
             </div>
 
-            <HourlyStrip day={days[selectedDay]} params={params} />
+            <HourlyStrip day={days[selectedDay]} params={params} solcastData={solcastData} />
           </div>
         )}
 
@@ -158,6 +249,14 @@ export default function App() {
               {totalWeekKwh.toFixed(1)} <span style={{ fontSize: 12, fontWeight: 400 }}>kWh</span>
             </div>
           </div>
+          {totalWeekSolcast > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: '#a78bfa' }}>Solcast 本周</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#a78bfa' }}>
+                {totalWeekSolcast.toFixed(1)} <span style={{ fontSize: 12, fontWeight: 400 }}>kWh</span>
+              </div>
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 11, color: '#94a3b8' }}>日均</div>
             <div style={{ fontSize: 20, fontWeight: 700 }}>
