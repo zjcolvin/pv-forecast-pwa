@@ -1,7 +1,8 @@
-import { weatherIcon, weatherLabel } from './WeatherIcon.jsx'
+import { weatherIcon, weatherLabel, sanitizeWeatherCode } from './WeatherIcon.jsx'
 
 export default function ForecastCard({ day, isToday, pvKwh, solcastKwh }) {
-  const icon = weatherIcon(day.code)
+  const safeCode = sanitizeWeatherCode(day.code, (day.tMax + day.tMin) / 2);
+  const icon = weatherIcon(safeCode)
   const sunrise = day.sunrise != null ? `${String(Math.floor(day.sunrise)).padStart(2,'0')}:${String(Math.round((day.sunrise%1)*60)).padStart(2,'0')}` : '--'
   const sunset = day.sunset != null ? `${String(Math.floor(day.sunset)).padStart(2,'0')}:${String(Math.round((day.sunset%1)*60)).padStart(2,'0')}` : '--'
 
@@ -25,7 +26,7 @@ export default function ForecastCard({ day, isToday, pvKwh, solcastKwh }) {
         {icon}
       </div>
       <div style={{ fontSize: 10, color: '#cbd5e1', minHeight: 24, marginBottom: 4, lineHeight: 1.3 }}>
-        {weatherLabel(day.code)}
+        {weatherLabel(safeCode)}
       </div>
       <div style={{ fontSize: 14, fontWeight: 700, color: '#f1f5f9' }}>
         {day.tMax}°
